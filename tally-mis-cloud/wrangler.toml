@@ -1,0 +1,11 @@
+name = "tally-mis-cloud"
+compatibility_date = "2026-05-24"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "MIS_DB"
+database_name = "tally_mis_cloud"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+[vars]
+APP_ENV = "production"

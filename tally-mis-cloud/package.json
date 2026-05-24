@@ -1,0 +1,39 @@
+{
+  "name": "tally-mis-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloud-hosted low-cost TallyPrime MIS dashboard for manual export uploads.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "cf:dev": "wrangler pages dev dist --d1 MIS_DB",
+    "cf:deploy": "npm run build && wrangler pages deploy dist",
+    "db:migrate:local": "wrangler d1 migrations apply MIS_DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply MIS_DB --remote"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "apexcharts": "^4.7.0",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-apexcharts": "^1.7.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260518.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0",
+    "vitest": "^3.1.0",
+    "wrangler": "^4.18.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}
