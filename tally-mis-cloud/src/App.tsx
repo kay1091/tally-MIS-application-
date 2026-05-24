@@ -6,6 +6,9 @@ import {
   Database,
   Download,
   FileSpreadsheet,
+  FileUp,
+  Gauge,
+  Layers3,
   Lock,
   LogOut,
   ShieldCheck,
@@ -49,6 +52,13 @@ const defaultUser: User = {
   name: "Finance Admin",
   role: "admin"
 };
+
+const workflowSteps = [
+  "Export TallyPrime reports",
+  "Upload workbook or CSV",
+  "Review mapped sheets",
+  "Export MIS pack"
+];
 
 function cloneState(state: AppState): AppState {
   return JSON.parse(JSON.stringify(state)) as AppState;
@@ -204,6 +214,8 @@ export function App() {
   const months = trendRows.map((row) => String(row[0]));
   const revenue = trendRows.map((row) => Number(row[1]) || 0);
   const ebitda = trendRows.map((row) => Number(row[5]) || 0);
+  const loadedSheets = Object.values(sheetLabels).length;
+  const totalLoadedRows = (Object.keys(sheetLabels) as SheetKey[]).reduce((sum, key) => sum + Math.max(0, state[key].length - 1), 0);
 
   return (
     <div className="app-shell">
@@ -216,6 +228,11 @@ export function App() {
             <strong>TallyMIS Cloud</strong>
             <span>Cloud upload v1</span>
           </div>
+        </div>
+        <div className="sidebar-snapshot">
+          <span>Current period</span>
+          <strong>{state.reportingPeriod}</strong>
+          <small>{totalLoadedRows} rows loaded</small>
         </div>
         <nav>
           {navItems.map((item) => {
@@ -246,6 +263,10 @@ export function App() {
             <p>{state.financialYear} / {state.reportingPeriod}</p>
           </div>
           <div className="actions">
+            <button onClick={() => setView("upload")}>
+              <FileUp size={16} />
+              Upload
+            </button>
             <button
               onClick={async () => {
                 const { exportBackupJson } = await import("./lib/excelExport");
@@ -281,6 +302,10 @@ export function App() {
             <ShieldCheck size={15} />
             No third-party data APIs
           </div>
+          <div className="status-chip">
+            <Layers3 size={15} />
+            {loadedSheets} mapped sheets
+          </div>
         </section>
 
         {view === "dashboard" && (
@@ -290,6 +315,16 @@ export function App() {
                 <span className="eyebrow">Executive snapshot</span>
                 <h2>{formatCurrency(metrics.totalRevenue)} revenue with {formatPercent(metrics.ebitdaMargin)} EBITDA margin</h2>
                 <p>Upload Tally exports, review validated sheets, and export a board-ready MIS workbook from the same cloud workflow.</p>
+                <div className="hero-actions">
+                  <button className="primary-btn" onClick={() => setView("upload")}>
+                    <Upload size={16} />
+                    Upload exports
+                  </button>
+                  <button onClick={() => setView("reports")}>
+                    <FileSpreadsheet size={16} />
+                    View reports
+                  </button>
+                </div>
               </div>
               <div className="hero-metrics">
                 <div>
@@ -311,32 +346,54 @@ export function App() {
               <KpiCard label="GST Payable" value={formatCurrency(metrics.gstNetPayable)} detail="Output less ITC" icon={FileSpreadsheet} />
             </section>
 
-            <section className="panel chart-panel">
-              <div className="panel-head">
-                <div>
-                  <h2>Revenue and EBITDA Trend</h2>
-                  <p>Based on uploaded monthly trend data or sample seed data.</p>
+            <section className="dashboard-grid">
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Revenue and EBITDA Trend</h2>
+                    <p>Based on uploaded monthly trend data or sample seed data.</p>
+                  </div>
+                  <span className="panel-badge">6 month view</span>
                 </div>
-                <span className="panel-badge">6 month view</span>
-              </div>
-              <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
-                <Chart
-                  type="line"
-                  height={320}
-                  options={{
-                    chart: { toolbar: { show: false }, foreColor: "#526070" },
-                    stroke: { width: [0, 3], curve: "smooth" },
-                    xaxis: { categories: months },
-                    yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
-                    colors: ["#0f766e", "#2563eb"],
-                    dataLabels: { enabled: false }
-                  }}
-                  series={[
-                    { name: "Revenue", type: "column", data: revenue },
-                    { name: "EBITDA", type: "line", data: ebitda }
-                  ]}
-                />
-              </Suspense>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="line"
+                    height={320}
+                    options={{
+                      chart: { toolbar: { show: false }, foreColor: "#526070" },
+                      stroke: { width: [0, 3], curve: "smooth" },
+                      xaxis: { categories: months },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#0f766e", "#2563eb"],
+                      dataLabels: { enabled: false }
+                    }}
+                    series={[
+                      { name: "Revenue", type: "column", data: revenue },
+                      { name: "EBITDA", type: "line", data: ebitda }
+                    ]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel workflow-panel">
+                <div>
+                  <span className="eyebrow">Cloud workflow</span>
+                  <h2>Manual upload pipeline</h2>
+                  <p>No local Tally connection is required for the hosted version.</p>
+                </div>
+                <div className="workflow-list">
+                  {workflowSteps.map((step, index) => (
+                    <div key={step}>
+                      <span>{index + 1}</span>
+                      <strong>{step}</strong>
+                    </div>
+                  ))}
+                </div>
+                <button className="primary-btn" onClick={() => setView("upload")}>
+                  <Upload size={16} />
+                  Start upload
+                </button>
+              </section>
             </section>
           </>
         )}
@@ -373,6 +430,13 @@ export function App() {
                 </div>
               ))}
             </div>
+            <div className="import-note">
+              <Gauge size={18} />
+              <div>
+                <strong>Production-safe import mode</strong>
+                <span>Spreadsheet values are normalized and rendered as text; live localhost Tally sync is intentionally excluded from the cloud UI.</span>
+              </div>
+            </div>
           </section>
         )}
 
@@ -395,7 +459,13 @@ export function App() {
 
         {view === "reports" && (
           <section className="panel">
-            <h2>Management Reports</h2>
+            <div className="panel-head">
+              <div>
+                <span className="eyebrow">Report pack</span>
+                <h2>Management Reports</h2>
+              </div>
+              <span className="panel-badge">Export ready</span>
+            </div>
             <div className="report-grid">
               <DataTable
                 rows={[

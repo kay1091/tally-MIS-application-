@@ -254,6 +254,29 @@ select:focus {
   margin-top: 2px;
 }
 
+.sidebar-snapshot {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 15px;
+  background:
+    linear-gradient(135deg, rgba(94, 234, 212, 0.13), rgba(37, 99, 235, 0.09)),
+    rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 5px;
+}
+
+.sidebar-snapshot span,
+.sidebar-snapshot small {
+  color: #9fb0c7;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.sidebar-snapshot strong {
+  font-size: 20px;
+  letter-spacing: -0.04em;
+}
+
 .sidebar nav {
   display: grid;
   gap: 7px;
@@ -398,6 +421,13 @@ select:focus {
   font-size: 15px;
 }
 
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
 .hero-metrics {
   display: grid;
   gap: 12px;
@@ -514,6 +544,13 @@ select:focus {
   min-height: 410px;
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.75fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
 .chart-loading {
   min-height: 320px;
   display: grid;
@@ -525,6 +562,55 @@ select:focus {
 
 .upload-panel {
   max-width: 1080px;
+}
+
+.workflow-panel {
+  align-content: start;
+  background:
+    linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(17, 94, 89, 0.92)),
+    #0f172a;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.workflow-panel .eyebrow,
+.workflow-panel p {
+  color: #9adbd2;
+}
+
+.workflow-panel h2 {
+  color: #fff;
+}
+
+.workflow-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-list div {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.workflow-list span {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(94, 234, 212, 0.16);
+  color: #99f6e4;
+  font-weight: 850;
+}
+
+.workflow-list strong {
+  font-size: 14px;
 }
 
 .drop-target {
@@ -589,6 +675,33 @@ select:focus {
 
 .sheet-status strong {
   letter-spacing: -0.015em;
+}
+
+.import-note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 15px;
+  border-radius: 16px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.import-note svg {
+  color: var(--blue);
+  margin-top: 2px;
+}
+
+.import-note strong,
+.import-note span {
+  display: block;
+}
+
+.import-note span {
+  color: var(--muted);
+  margin-top: 3px;
+  font-size: 13px;
 }
 
 .table-wrap {
@@ -673,6 +786,7 @@ td {
   }
 
   .hero-panel,
+  .dashboard-grid,
   .report-grid,
   .settings-grid {
     grid-template-columns: 1fr;
