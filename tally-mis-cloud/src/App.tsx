@@ -21,6 +21,7 @@ import { login, saveState } from "./lib/api";
 import { calculateMetrics } from "./lib/calculations";
 import { formatCurrency, formatNumber, formatPercent } from "./lib/format";
 import { sampleState } from "./lib/sampleData";
+import { replaceGeneratedTrendRow } from "./lib/trends";
 import type { AppState, RawSheet, SheetKey, User } from "./lib/types";
 
 const Chart = lazy(() => import("react-apexcharts"));
@@ -62,6 +63,17 @@ const workflowSteps = [
 
 function cloneState(state: AppState): AppState {
   return JSON.parse(JSON.stringify(state)) as AppState;
+}
+
+function clearSampleFallbackSheets(state: AppState, mappedSheets: Set<SheetKey>): AppState {
+  const nextState = cloneState(state);
+  (Object.keys(sheetLabels) as SheetKey[]).forEach((key) => {
+    if (key === "monthlyTrends" || mappedSheets.has(key)) return;
+    if (JSON.stringify(nextState[key]) === JSON.stringify(sampleState[key])) {
+      nextState[key] = [sampleState[key][0]];
+    }
+  });
+  return nextState;
 }
 
 function KpiCard({
@@ -214,6 +226,7 @@ export function App() {
   const [view, setView] = useState<View>("dashboard");
   const [activeSheet, setActiveSheet] = useState<SheetKey>("rawTrialBalance");
   const [state, setState] = useState<AppState>(sampleState);
+  const [selectedPeriod, setSelectedPeriod] = useState("all");
   const [notice, setNotice] = useState("Sample data loaded. Upload Tally exports to replace it.");
   const metrics = useMemo(() => calculateMetrics(state), [state]);
 
@@ -247,6 +260,15 @@ export function App() {
       errors.push(...result.errors);
     }
 
+    if (acceptedFiles.length > 0) {
+      nextState = clearSampleFallbackSheets(nextState, mappedSheets);
+    }
+
+    if (acceptedFiles.length > 0 && !mappedSheets.has("monthlyTrends")) {
+      nextState = replaceGeneratedTrendRow(nextState);
+      setSelectedPeriod(String(nextState.monthlyTrends[1]?.[0] ?? "all"));
+    }
+
     setState(nextState);
     setNotice(
       acceptedFiles.length > 0
@@ -273,28 +295,37 @@ export function App() {
     const nextState = cloneState(sampleState);
     setState(nextState);
     setActiveSheet("rawTrialBalance");
+    setSelectedPeriod("all");
     setNotice("Sample data restored. Upload Tally exports to replace it.");
     if (token !== "demo-token") {
       await saveState(token, nextState);
     }
   }
 
-  const trendRows = state.monthlyTrends.slice(1);
+  const allTrendRows = state.monthlyTrends.slice(1);
+  const periodOptions = allTrendRows.map((row) => String(row[0] ?? "")).filter(Boolean);
+  const trendRows = selectedPeriod === "all" ? allTrendRows : allTrendRows.filter((row) => String(row[0]) === selectedPeriod);
   const months = trendRows.map((row) => String(row[0]));
-  const revenue = trendRows.map((row) => Number(row[1]) || 0);
-  const cogs = trendRows.map((row) => Number(row[2]) || 0);
-  const grossProfit = trendRows.map((row) => Number(row[3]) || 0);
-  const operatingExpenses = trendRows.map((row) => Number(row[4]) || 0);
-  const ebitda = trendRows.map((row) => Number(row[5]) || 0);
-  const netProfit = trendRows.map((row) => Number(row[6]) || 0);
-  const receivablesTrend = trendRows.map((row) => Number(row[7]) || 0);
-  const payablesTrend = trendRows.map((row) => Number(row[8]) || 0);
-  const stockTrend = trendRows.map((row) => Number(row[9]) || 0);
-  const cashTrend = trendRows.map((row) => Number(row[10]) || 0);
+  const chartNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const chartValue = (row: RawSheet[number], index: number): number | null => chartNumber(row[index]);
+  const revenue = trendRows.map((row) => chartValue(row, 1));
+  const cogs = trendRows.map((row) => chartValue(row, 2));
+  const grossProfit = trendRows.map((row) => chartValue(row, 3));
+  const operatingExpenses = trendRows.map((row) => chartValue(row, 4));
+  const ebitda = trendRows.map((row) => chartValue(row, 5));
+  const netProfit = trendRows.map((row) => chartValue(row, 6));
+  const receivablesTrend = trendRows.map((row) => chartValue(row, 7));
+  const payablesTrend = trendRows.map((row) => chartValue(row, 8));
+  const stockTrend = trendRows.map((row) => chartValue(row, 9));
+  const cashTrend = trendRows.map((row) => chartValue(row, 10));
   const latestRevenue = revenue.at(-1) ?? 0;
   const previousRevenue = revenue.at(-2) ?? 0;
-  const monthlyGrowth = previousRevenue > 0 ? (latestRevenue - previousRevenue) / previousRevenue : 0;
-  const marginTrend = revenue.map((value, index) => (value > 0 ? (grossProfit[index] || 0) / value * 100 : 0));
+  const monthlyGrowth = previousRevenue && latestRevenue !== null ? (latestRevenue - previousRevenue) / previousRevenue : 0;
+  const marginTrend = revenue.map((value, index) => (value && grossProfit[index] !== null ? (Number(grossProfit[index]) / value) * 100 : null));
   const receivableAgeing = ageingBuckets(state.rawReceivables);
   const payableAgeing = ageingBuckets(state.rawPayables);
   const inventory = stockMovement(state.rawStockSummary);
@@ -401,6 +432,21 @@ export function App() {
 
         {view === "dashboard" && (
           <>
+            <section className="panel filter-panel">
+              <div>
+                <span className="eyebrow">Dashboard filters</span>
+                <h2>Reporting period</h2>
+              </div>
+              <label>
+                Period
+                <select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>
+                  <option value="all">All loaded periods</option>
+                  {periodOptions.map((period) => (
+                    <option key={period} value={period}>{period}</option>
+                  ))}
+                </select>
+              </label>
+            </section>
             <section className="hero-panel">
               <div>
                 <span className="eyebrow">Executive snapshot</span>
@@ -617,7 +663,7 @@ export function App() {
                       { name: "Receivables", data: receivablesTrend },
                       { name: "Payables", data: payablesTrend },
                       { name: "Closing Stock", data: stockTrend },
-                      { name: "Expenses", data: operatingExpenses.map((value, index) => value + (cogs[index] || 0)) }
+                      { name: "Expenses", data: operatingExpenses.map((value, index) => value === null && cogs[index] === null ? null : (value ?? 0) + (cogs[index] ?? 0)) }
                     ]}
                   />
                 </Suspense>

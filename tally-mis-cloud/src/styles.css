@@ -407,6 +407,19 @@ select:focus {
   box-shadow: var(--shadow-sm);
 }
 
+.filter-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  align-items: end;
+}
+
+.filter-panel label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .hero-panel h2 {
   max-width: 920px;
   margin-top: 8px;
@@ -797,6 +810,7 @@ td {
   }
 
   .hero-panel,
+  .filter-panel,
   .dashboard-grid,
   .chart-grid,
   .report-grid,
