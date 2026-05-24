@@ -1,0 +1,13 @@
+{
+  "name": "tally-mis-application-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm ci --prefix tally-mis-cloud && npm run build --prefix tally-mis-cloud",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.94.0"
+  }
+}

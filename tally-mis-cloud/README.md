@@ -31,6 +31,21 @@ npm run cf:dev
 
 ## Cloudflare Setup
 
+The repository has a root-level `wrangler.toml` so Cloudflare can run `npx wrangler deploy` from the repository root. That command builds `tally-mis-cloud` and deploys only the compiled `tally-mis-cloud/dist` assets.
+
+For Cloudflare Workers static deploy:
+
+```bash
+npm run build
+npx wrangler deploy
+```
+
+For Cloudflare Pages instead, set:
+
+- Root directory: `tally-mis-cloud`
+- Build command: `npm ci && npm run build`
+- Output directory: `dist`
+
 1. Create a D1 database:
 
 ```bash
