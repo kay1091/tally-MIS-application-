@@ -117,6 +117,42 @@ function DataTable({ rows, maxRows = 12 }: { rows: RawSheet; maxRows?: number })
   );
 }
 
+function numeric(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[₹,\s]/g, "");
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function columnIndex(rows: RawSheet, needle: string): number {
+  const header = rows[0] ?? [];
+  return header.findIndex((cell) => String(cell ?? "").toLowerCase().includes(needle.toLowerCase()));
+}
+
+function sumColumn(rows: RawSheet, needle: string): number {
+  const index = columnIndex(rows, needle);
+  if (index < 0) return 0;
+  return rows.slice(1).reduce((sum, row) => sum + numeric(row[index]), 0);
+}
+
+function ageingBuckets(rows: RawSheet): number[] {
+  const buckets = ["0-30", "31-60", "61-90", "above"];
+  return buckets.map((bucket) => sumColumn(rows, bucket));
+}
+
+function stockMovement(rows: RawSheet) {
+  return {
+    categories: rows.slice(1).map((row) => String(row[0] ?? "Item")).slice(0, 8),
+    opening: rows.slice(1).map((row) => numeric(row[columnIndex(rows, "opening")])).slice(0, 8),
+    purchases: rows.slice(1).map((row) => numeric(row[columnIndex(rows, "purchase")])).slice(0, 8),
+    sales: rows.slice(1).map((row) => numeric(row[columnIndex(rows, "sales")])).slice(0, 8),
+    closing: rows.slice(1).map((row) => numeric(row[columnIndex(rows, "closing")])).slice(0, 8)
+  };
+}
+
 function LoginPanel({ onLogin }: { onLogin: (user: User, token: string) => void }) {
   const [email, setEmail] = useState(defaultUser.email);
   const [password, setPassword] = useState("change-me");
@@ -192,30 +228,85 @@ export function App() {
     );
   }
 
-  async function handleUpload(file: File) {
-    const { parseTallyWorkbook } = await import("./lib/uploadParser");
-    const result = await parseTallyWorkbook(file, state);
-    setState(result.nextState);
-    setNotice(
-      result.accepted
-        ? `Accepted ${file.name}. Mapped: ${result.mappedSheets.map((sheet) => sheetLabels[sheet]).join(", ")}.`
-        : result.errors.join(" ")
-    );
-    if (result.accepted && token !== "demo-token") {
-      await saveState(token, result.nextState);
+  async function handleUploadFiles(files: FileList) {
+    const selectedFiles = Array.from(files);
+    if (selectedFiles.length === 0) return;
+
+    let nextState = state;
+    const acceptedFiles: string[] = [];
+    const mappedSheets = new Set<SheetKey>();
+    const errors: string[] = [];
+
+    for (const file of selectedFiles) {
+      const result = await parseUpload(file, nextState);
+      nextState = result.nextState;
+      if (result.accepted) {
+        acceptedFiles.push(file.name);
+        result.mappedSheets.forEach((sheet) => mappedSheets.add(sheet));
+      }
+      errors.push(...result.errors);
     }
+
+    setState(nextState);
+    setNotice(
+      acceptedFiles.length > 0
+        ? `Accepted ${acceptedFiles.length} file${acceptedFiles.length === 1 ? "" : "s"}. Mapped: ${Array.from(mappedSheets)
+            .map((sheet) => sheetLabels[sheet])
+            .join(", ")}.`
+        : errors.join(" ")
+    );
+    if (acceptedFiles.length > 0 && token !== "demo-token") {
+      await saveState(token, nextState);
+    }
+  }
+
+  async function parseUpload(file: File, currentState: AppState) {
+    const { parseTallyWorkbook } = await import("./lib/uploadParser");
+    return parseTallyWorkbook(file, currentState);
   }
 
   function updateCompany(field: keyof AppState, value: string) {
     setState((current) => ({ ...current, [field]: value }));
   }
 
+  async function resetSampleData() {
+    const nextState = cloneState(sampleState);
+    setState(nextState);
+    setActiveSheet("rawTrialBalance");
+    setNotice("Sample data restored. Upload Tally exports to replace it.");
+    if (token !== "demo-token") {
+      await saveState(token, nextState);
+    }
+  }
+
   const trendRows = state.monthlyTrends.slice(1);
   const months = trendRows.map((row) => String(row[0]));
   const revenue = trendRows.map((row) => Number(row[1]) || 0);
+  const cogs = trendRows.map((row) => Number(row[2]) || 0);
+  const grossProfit = trendRows.map((row) => Number(row[3]) || 0);
+  const operatingExpenses = trendRows.map((row) => Number(row[4]) || 0);
   const ebitda = trendRows.map((row) => Number(row[5]) || 0);
+  const netProfit = trendRows.map((row) => Number(row[6]) || 0);
+  const receivablesTrend = trendRows.map((row) => Number(row[7]) || 0);
+  const payablesTrend = trendRows.map((row) => Number(row[8]) || 0);
+  const stockTrend = trendRows.map((row) => Number(row[9]) || 0);
+  const cashTrend = trendRows.map((row) => Number(row[10]) || 0);
+  const latestRevenue = revenue.at(-1) ?? 0;
+  const previousRevenue = revenue.at(-2) ?? 0;
+  const monthlyGrowth = previousRevenue > 0 ? (latestRevenue - previousRevenue) / previousRevenue : 0;
+  const marginTrend = revenue.map((value, index) => (value > 0 ? (grossProfit[index] || 0) / value * 100 : 0));
+  const receivableAgeing = ageingBuckets(state.rawReceivables);
+  const payableAgeing = ageingBuckets(state.rawPayables);
+  const inventory = stockMovement(state.rawStockSummary);
   const loadedSheets = Object.values(sheetLabels).length;
   const totalLoadedRows = (Object.keys(sheetLabels) as SheetKey[]).reduce((sum, key) => sum + Math.max(0, state[key].length - 1), 0);
+  const chartBaseOptions = {
+    chart: { toolbar: { show: false }, foreColor: "#526070" },
+    dataLabels: { enabled: false },
+    grid: { borderColor: "#e5eaf0" },
+    legend: { position: "top" as const },
+    tooltip: { theme: "light" }
+  };
 
   return (
     <div className="app-shell">
@@ -338,61 +429,198 @@ export function App() {
               </div>
             </section>
             <section className="kpi-grid">
-              <KpiCard label="Revenue" value={formatCurrency(metrics.totalRevenue)} detail="Trial Balance sales ledgers" tone="good" icon={TrendingUp} />
+              <KpiCard label="Total Revenue" value={formatCurrency(metrics.totalRevenue)} detail="Trial Balance sales ledgers" tone="good" icon={TrendingUp} />
+              <KpiCard label="Gross Profit" value={formatCurrency(metrics.grossProfit)} detail="Revenue less COGS" tone={metrics.grossProfit >= 0 ? "good" : "bad"} icon={BarChart3} />
+              <KpiCard label="Gross Margin %" value={formatPercent(metrics.grossMargin)} detail="Gross profit / revenue" tone={metrics.grossMargin >= 0.25 ? "good" : "warn"} icon={Gauge} />
               <KpiCard label="EBITDA" value={formatCurrency(metrics.ebitda)} detail={formatPercent(metrics.ebitdaMargin)} tone="good" icon={BarChart3} />
-              <KpiCard label="PAT" value={formatCurrency(metrics.pat)} detail={formatPercent(metrics.netMargin)} tone="good" icon={Activity} />
-              <KpiCard label="DSO" value={`${metrics.debtorDays} days`} detail="Receivables / revenue" tone={metrics.debtorDays <= 60 ? "good" : "warn"} icon={Database} />
+              <KpiCard label="Net Profit" value={formatCurrency(metrics.pat)} detail={formatPercent(metrics.netMargin)} tone={metrics.pat >= 0 ? "good" : "bad"} icon={Activity} />
+              <KpiCard label="Debtor Days" value={`${metrics.debtorDays} days`} detail="Receivables / revenue" tone={metrics.debtorDays <= 60 ? "good" : "warn"} icon={Database} />
+              <KpiCard label="Creditor Days" value={`${metrics.creditorDays} days`} detail="Payables / purchases" tone={metrics.creditorDays <= 75 ? "good" : "warn"} icon={Users} />
+              <KpiCard label="Inventory Days" value={`${metrics.inventoryDays} days`} detail="Stock / COGS" tone={metrics.inventoryDays <= 90 ? "good" : "warn"} icon={Layers3} />
+              <KpiCard label="Working Capital" value={formatCurrency(metrics.workingCapital)} detail="Current assets less liabilities" tone={metrics.workingCapital >= 0 ? "good" : "bad"} icon={Archive} />
               <KpiCard label="Current Ratio" value={formatNumber(metrics.currentRatio, 2)} detail="Target > 1.33" tone={metrics.currentRatio >= 1.33 ? "good" : "bad"} icon={ShieldCheck} />
+              <KpiCard label="Quick Ratio" value={formatNumber(metrics.quickRatio, 2)} detail="Liquid assets / liabilities" tone={metrics.quickRatio >= 1 ? "good" : "warn"} icon={CheckCircle2} />
               <KpiCard label="GST Payable" value={formatCurrency(metrics.gstNetPayable)} detail="Output less ITC" icon={FileSpreadsheet} />
+              <KpiCard label="Monthly Growth %" value={formatPercent(monthlyGrowth)} detail="Latest month revenue growth" tone={monthlyGrowth >= 0 ? "good" : "bad"} icon={TrendingUp} />
             </section>
 
-            <section className="dashboard-grid">
+            <section className="chart-grid">
               <section className="panel chart-panel">
                 <div className="panel-head">
                   <div>
-                    <h2>Revenue and EBITDA Trend</h2>
-                    <p>Based on uploaded monthly trend data or sample seed data.</p>
+                    <h2>Monthly Revenue Graph</h2>
+                    <p>Revenue movement across reporting months.</p>
                   </div>
-                  <span className="panel-badge">6 month view</span>
+                  <span className="panel-badge">Revenue</span>
+                </div>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="bar"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      xaxis: { categories: months },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#0f766e"]
+                    }}
+                    series={[{ name: "Revenue", data: revenue }]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Trend Charts</h2>
+                    <p>Revenue, EBITDA, net profit, and gross margin trend.</p>
+                  </div>
+                  <span className="panel-badge">Profitability</span>
                 </div>
                 <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
                   <Chart
                     type="line"
                     height={320}
                     options={{
-                      chart: { toolbar: { show: false }, foreColor: "#526070" },
-                      stroke: { width: [0, 3], curve: "smooth" },
+                      ...chartBaseOptions,
+                      stroke: { width: [0, 3, 3, 3], curve: "smooth" },
                       xaxis: { categories: months },
-                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
-                      colors: ["#0f766e", "#2563eb"],
-                      dataLabels: { enabled: false }
+                      yaxis: [{ labels: { formatter: (value: number) => formatNumber(value) } }, { opposite: true, labels: { formatter: (value: number) => `${value.toFixed(0)}%` } }],
+                      colors: ["#0f766e", "#2563eb", "#7c3aed", "#b45309"]
                     }}
                     series={[
                       { name: "Revenue", type: "column", data: revenue },
-                      { name: "EBITDA", type: "line", data: ebitda }
+                      { name: "EBITDA", type: "line", data: ebitda },
+                      { name: "Net Profit", type: "line", data: netProfit },
+                      { name: "Gross Margin %", type: "line", data: marginTrend }
                     ]}
                   />
                 </Suspense>
               </section>
 
-              <section className="panel workflow-panel">
-                <div>
-                  <span className="eyebrow">Cloud workflow</span>
-                  <h2>Manual upload pipeline</h2>
-                  <p>No local Tally connection is required for the hosted version.</p>
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Expense Breakdown Chart</h2>
+                    <p>COGS, operating expenses, and profit stack.</p>
+                  </div>
+                  <span className="panel-badge">Expenses</span>
                 </div>
-                <div className="workflow-list">
-                  {workflowSteps.map((step, index) => (
-                    <div key={step}>
-                      <span>{index + 1}</span>
-                      <strong>{step}</strong>
-                    </div>
-                  ))}
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="donut"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      labels: ["COGS", "Operating Expenses", "EBITDA"],
+                      colors: ["#2563eb", "#b45309", "#0f766e"]
+                    }}
+                    series={[metrics.totalCOGS, metrics.totalOperatingExpenses, Math.max(0, metrics.ebitda)]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Receivables Ageing Chart</h2>
+                    <p>Customer outstanding by ageing bucket.</p>
+                  </div>
+                  <span className="panel-badge">AR ageing</span>
                 </div>
-                <button className="primary-btn" onClick={() => setView("upload")}>
-                  <Upload size={16} />
-                  Start upload
-                </button>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="bar"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      xaxis: { categories: ["0-30", "31-60", "61-90", "90+"] },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#2563eb"]
+                    }}
+                    series={[{ name: "Receivables", data: receivableAgeing }]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Payables Ageing Chart</h2>
+                    <p>Vendor outstanding by ageing bucket.</p>
+                  </div>
+                  <span className="panel-badge">AP ageing</span>
+                </div>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="bar"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      xaxis: { categories: ["0-30", "31-60", "61-90", "90+"] },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#b45309"]
+                    }}
+                    series={[{ name: "Payables", data: payableAgeing }]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Inventory Movement Chart</h2>
+                    <p>Opening, purchases, sales, and closing quantities.</p>
+                  </div>
+                  <span className="panel-badge">Inventory</span>
+                </div>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="bar"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      xaxis: { categories: inventory.categories },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#94a3b8", "#2563eb", "#b45309", "#0f766e"]
+                    }}
+                    series={[
+                      { name: "Opening", data: inventory.opening },
+                      { name: "Purchases", data: inventory.purchases },
+                      { name: "Sales", data: inventory.sales },
+                      { name: "Closing", data: inventory.closing }
+                    ]}
+                  />
+                </Suspense>
+              </section>
+
+              <section className="panel chart-panel chart-panel-wide">
+                <div className="panel-head">
+                  <div>
+                    <h2>Cashflow Trend Chart</h2>
+                    <p>Cash balance with receivables, payables, stock, COGS, and expenses.</p>
+                  </div>
+                  <span className="panel-badge">Cashflow</span>
+                </div>
+                <Suspense fallback={<div className="chart-loading">Loading chart...</div>}>
+                  <Chart
+                    type="line"
+                    height={320}
+                    options={{
+                      ...chartBaseOptions,
+                      stroke: { width: 3, curve: "smooth" },
+                      xaxis: { categories: months },
+                      yaxis: { labels: { formatter: (value: number) => formatNumber(value) } },
+                      colors: ["#0f766e", "#2563eb", "#b45309", "#64748b", "#7c3aed"]
+                    }}
+                    series={[
+                      { name: "Cash Balance", data: cashTrend },
+                      { name: "Receivables", data: receivablesTrend },
+                      { name: "Payables", data: payablesTrend },
+                      { name: "Closing Stock", data: stockTrend },
+                      { name: "Expenses", data: operatingExpenses.map((value, index) => value + (cogs[index] || 0)) }
+                    ]}
+                  />
+                </Suspense>
               </section>
             </section>
           </>
@@ -410,14 +638,16 @@ export function App() {
             </div>
             <label className="drop-target">
               <Upload size={28} />
-              <strong>Select Tally export workbook</strong>
+              <strong>Select Tally export workbook(s)</strong>
               <span>.xlsx or .csv up to 8 MB</span>
               <input
                 type="file"
                 accept=".xlsx,.csv"
+                multiple
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void handleUpload(file);
+                  const files = event.target.files;
+                  if (files) void handleUploadFiles(files);
+                  event.currentTarget.value = "";
                 }}
               />
             </label>
@@ -511,7 +741,7 @@ export function App() {
               Reporting period
               <input value={state.reportingPeriod} onChange={(event) => updateCompany("reportingPeriod", event.target.value)} />
             </label>
-            <button className="primary-btn" onClick={() => setState(cloneState(sampleState))}>Reset sample data</button>
+            <button className="primary-btn" onClick={() => void resetSampleData()}>Reset sample data</button>
           </section>
         )}
       </main>

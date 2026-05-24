@@ -5,7 +5,7 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 const sheetMatchers: Array<[SheetKey, RegExp]> = [
   ["rawTrialBalance", /(trial|balance)/i],
-  ["rawSales", /(sales|register)/i],
+  ["rawSales", /sales/i],
   ["rawPurchases", /(purchase|expense)/i],
   ["rawReceivables", /(receivable|debtor)/i],
   ["rawPayables", /(payable|creditor)/i],
@@ -28,14 +28,82 @@ function normalizeCell(value: unknown): string | number | boolean | null {
 }
 
 function normalizeRows(rows: unknown[][]): RawSheet {
-  return rows
+  const compactRows = rows
     .filter((row) => row.some((cell) => String(cell ?? "").trim() !== ""))
     .map((row) => row.map(normalizeCell));
+
+  return trimTallyReportPreamble(compactRows);
 }
 
 function detectSheetKey(sheetName: string): SheetKey | null {
   const match = sheetMatchers.find(([, pattern]) => pattern.test(sheetName));
   return match?.[0] ?? null;
+}
+
+function applyTallyMetadata(state: AppState, rows: unknown[][]): void {
+  const textRows = rows
+    .map((row) => row.map((cell) => String(cell ?? "").trim()).filter(Boolean))
+    .filter((row) => row.length > 0);
+  const title = textRows[0]?.[0];
+  const yearMatch = title?.match(/FY\s*(\d{4})[-\s]*(\d{2,4})/i);
+
+  if (title) {
+    const companyName = title.replace(/FY\s*\d{4}[-\s]*\d{2,4}/i, "").trim();
+    if (companyName.length > 2) state.companyName = companyName;
+  }
+
+  if (yearMatch) {
+    const endYear = yearMatch[2].slice(-2);
+    state.financialYear = `FY ${yearMatch[1]}-${endYear}`;
+  }
+
+  const period = textRows.flat().find((cell) => /\d{1,2}-[A-Za-z]{3}-\d{2,4}\s+to\s+\d{1,2}-[A-Za-z]{3}-\d{2,4}/.test(cell));
+  if (period) state.reportingPeriod = period;
+}
+
+function trimTallyReportPreamble(rows: RawSheet): RawSheet {
+  const headerIndex = rows.findIndex((row, rowIndex) => {
+    const cells = row.map((cell) => String(cell ?? "").trim().toLowerCase());
+    const joined = cells.join(" ");
+    const hasDate = cells.includes("date");
+    const hasLedgerName = joined.includes("ledger name");
+    const hasParticulars = cells.includes("particulars");
+    const hasVoucher = joined.includes("voucher");
+    const hasBalance = joined.includes("balance");
+    const hasNearbyBalance = rows
+      .slice(rowIndex + 1, rowIndex + 3)
+      .some((candidate) => candidate.join(" ").toLowerCase().includes("balance"));
+    const hasValue = cells.includes("value") || joined.includes("gross total");
+
+    return hasLedgerName || (hasParticulars && (hasBalance || hasNearbyBalance)) || (hasDate && hasVoucher && hasValue);
+  });
+
+  if (headerIndex < 0) return rows;
+
+  const header = rows[headerIndex];
+  const next = rows[headerIndex + 1];
+
+  const third = rows[headerIndex + 2];
+  const nextText = next?.join(" ").toLowerCase() ?? "";
+  const thirdText = third?.join(" ").toLowerCase() ?? "";
+  const isTrialBalanceHeader =
+    Boolean(next && third) &&
+    header.some((cell) => String(cell ?? "").trim().toLowerCase() === "particulars") &&
+    (nextText.includes("opening") || nextText.includes("closing") || nextText.includes("transactions")) &&
+    thirdText.includes("balance");
+
+  if (isTrialBalanceHeader) {
+    const mergedHeader = header.map((cell, index) => {
+      const primary = String(cell ?? "").trim();
+      const secondary = String(next[index] ?? "").trim();
+      const tertiary = String(third?.[index] ?? "").trim();
+      if (primary.toLowerCase() === "particulars") return "Particulars";
+      return [secondary, tertiary].filter(Boolean).join(" ").trim() || primary;
+    });
+    return [mergedHeader, ...rows.slice(headerIndex + 3)];
+  }
+
+  return rows.slice(headerIndex);
 }
 
 export async function parseTallyWorkbook(file: File, currentState: AppState): Promise<ImportResult> {
@@ -58,7 +126,9 @@ export async function parseTallyWorkbook(file: File, currentState: AppState): Pr
 
   if (/\.csv$/i.test(file.name)) {
     const key = detectSheetKey(file.name) ?? "rawTrialBalance";
-    const normalized = normalizeRows(parseCsv(await file.text()));
+    const rows = parseCsv(await file.text());
+    applyTallyMetadata(nextState, rows);
+    const normalized = normalizeRows(rows);
     if (normalized.length >= 2) {
       nextState[key] = normalized;
       mappedSheets.push(key);
@@ -79,6 +149,7 @@ export async function parseTallyWorkbook(file: File, currentState: AppState): Pr
         rows.push(Array.isArray(row.values) ? row.values.slice(1) : []);
       });
 
+      applyTallyMetadata(nextState, rows);
       const normalized = normalizeRows(rows);
       if (normalized.length < 2) {
         errors.push(`${worksheet.name} was detected but did not contain usable rows.`);

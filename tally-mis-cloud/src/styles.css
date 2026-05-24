@@ -551,6 +551,17 @@ select:focus {
   align-items: stretch;
 }
 
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.chart-panel-wide {
+  grid-column: 1 / -1;
+}
+
 .chart-loading {
   min-height: 320px;
   display: grid;
@@ -787,9 +798,14 @@ td {
 
   .hero-panel,
   .dashboard-grid,
+  .chart-grid,
   .report-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .chart-panel-wide {
+    grid-column: auto;
   }
 }
 
